@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Globals assigned here are consumed by the other sourced modules.
+# shellcheck disable=SC2034
 # shellcheck shell=bash
 transaction_begin() {
     TX=$(mktemp "$STATE_DIR/transactions/transaction-XXXXXXXX.json") || return
@@ -47,10 +49,13 @@ backup_configuration() {
     [[ $DRY_RUN != true ]] || { printf '%s\n' "$NGINX_DUMP" | helper files; return; }
     confirm 'Create a private configuration backup?' || return 1
     acquire_lock || return
-    local destination
+    local destination loaded_files
+    # Preserve Debian-style sites-enabled links by snapshotting their regular targets.
+    # fs backup still confines resolved files to the allowed configuration tree.
+    loaded_files=$(printf '%s\n' "$NGINX_DUMP" | helper files | python3 -c 'from pathlib import Path; import sys; print("\n".join(str(Path(x.strip()).resolve(strict=True)) for x in sys.stdin if x.strip()))') || return
     destination=$(mktemp "$STATE_DIR/backups/backup-XXXXXXXX.json") || return
     {
-        printf '%s\n' "$NGINX_DUMP" | helper files
+        printf '%s\n' "$loaded_files"
         find "$STATE_DIR/profiles" "$STATE_DIR/metadata" -maxdepth 1 -type f -name '*.conf' -print
         find "$STATE_DIR/metadata" -maxdepth 1 -type f -name '*.json' -print
         [[ ! -d $SITE_DIR ]] || find "$SITE_DIR" -maxdepth 1 -type f -name '*.disabled' -print

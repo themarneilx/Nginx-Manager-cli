@@ -1,10 +1,12 @@
 import importlib.util
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'lib'))
 SPEC = importlib.util.spec_from_file_location('config', ROOT / 'lib/config.py')
 config = importlib.util.module_from_spec(SPEC) if SPEC else None
 if SPEC and SPEC.loader and (ROOT / 'lib/config.py').exists():
@@ -57,6 +59,7 @@ class ConfigTests(unittest.TestCase):
             cert.touch(); key.touch()
             text = config.render(p, '/var/lib/nginx-manager/acme', str(cert), str(key))
             self.assertIn('listen 443 ssl;', text)
+            self.assertNotIn('@@', text)
             self.assertIn('return 301 https://$host$request_uri;', text)
             self.assertIn('location ^~ /.well-known/acme-challenge/', text)
 

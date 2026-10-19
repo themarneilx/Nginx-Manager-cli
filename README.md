@@ -1,4 +1,4 @@
-# Nginx deployment manager for Arch Linux
+# Nginx deployment manager for Linux
 
 Interactive Bash management of new Nginx virtual hosts, static/SPA frontends, API routes,
 local or remote proxies, Let's Encrypt HTTPS, Cloudflare DNS, backups and diagnostics.
@@ -6,28 +6,56 @@ No settings in Bash source need editing for another domain or VPS.
 
 **Development verification is isolated.** This project has not been deployed to your real
 server. Run the tests, review the preview, and deploy a disposable hostname on your own
-Arch staging host before using production. Real Nginx/Certbot/Cloudflare behavior requires
+staging host before using production. Real Nginx/Certbot/Cloudflare behavior requires
 that staging verification; mocked integration tests cannot establish production readiness.
 
 ## Install and launch
 
-Copy this entire directory to a trusted, root-owned location on the Nginx host. Do not run
-root code from a directory other users can modify. Bash 4.4+ and Python 3 are required.
+Clone or copy this entire repository to a trusted, root-owned location on the Nginx host.
+Do not run root code from a directory other users can modify. **Bash 4.4+, Python 3.9+ and
+systemd** are prerequisites. Python is needed to parse OS metadata safely before installing
+the remaining dependencies; on a minimal VPS, install it with the native package manager first.
 
 ```bash
-sudo pacman -S --needed bash python
+git clone https://github.com/themarneilx/Nginx-Manager-cli.git
+cd Nginx-Manager-cli
+./nginx-manager.sh os-info
+sudo ./nginx-manager.sh dependencies --dry-run
 sudo ./nginx-manager.sh dependencies
 sudo ./nginx-manager.sh
 ```
 
-The dependency command asks before installing nginx, certbot, certbot-nginx, curl,
-openssl, bind (dig), python and util-linux (flock) with pacman. It never refreshes package
-databases in isolation. Perform normal Arch system upgrades separately. systemd must
-already be available. No services or firewall rules are automatically started or opened
-by installing dependencies. The menu expects Nginx to be active and valid before deployment.
+The tool automatically reads `/etc/os-release`, falling back to `/usr/lib/os-release`, and
+matches `ID` first, then `ID_LIKE` for derivatives. It parses those assignments as data;
+it never sources OS metadata. The menu displays the detected distribution.
 
-Optional development packages: shellcheck and nginx for local syntax verification.
-No npm, desktop, cloud SDK or Python packages are required.
+| Distribution family | Package installer | Python / DNS packages |
+| --- | --- | --- |
+| Arch, Manjaro, EndeavourOS, Arch derivatives | pacman | python / bind |
+| Debian, Ubuntu, Mint, Debian/Ubuntu derivatives | apt-get | python3 / dnsutils |
+| Fedora | dnf | python3 / bind-utils |
+| RHEL, Rocky, AlmaLinux, CentOS Stream, Oracle Linux | dnf (yum fallback) | python3 / bind-utils |
+
+Use maintained releases meeting the runtime prerequisites: for example Ubuntu 22.04+,
+Debian 11+, current Fedora/Arch, and RHEL 9+ derivatives. Family detection is not a promise
+that obsolete releases or every derivative provides all required packages. Older releases
+may need a separately installed newer Python. Unknown distro families are reported and
+automatic package installation refuses to guess. OpenRC, runit, non-systemd containers,
+BSD and macOS are outside the service-management support scope. Rendering and OS inspection
+can run without systemd or root.
+
+The dependency command previews the native command and asks before installing Bash, Python,
+Nginx, Certbot, curl, OpenSSL, DNS utilities, util-linux, coreutils, findutils and CA certificates.
+The webroot workflow does not require the Certbot Nginx plugin. It does not add repositories,
+refresh package databases, upgrade the OS, change firewall/MAC policies, or run its own service
+start/restart commands. Native package scripts can start/reload services; review their prompts.
+On apt-based hosts, update stale package indexes yourself before installing if necessary.
+On RHEL derivatives Certbot may require an appropriately configured EPEL repository; the tool
+reports this and never enables it automatically or guesses another installer on failure.
+
+Nginx must be active with a valid systemd unit before deployment. Optional development tools
+are ShellCheck and a real Nginx binary for syntax tests. No npm, desktop, cloud SDK or third-party
+Python packages are required.
 
 ## Menu and workflows
 
@@ -100,8 +128,12 @@ dash and dot; paths with whitespace, traversal or Nginx metacharacters are rejec
 Public IPv4 and IPv6 origins and IP/hostname upstreams are supported. Generated listeners
 use IPv4, and additionally IPv6 when the selected origin is IPv6. Verify IPv6 routing and
 firewall rules before publishing AAAA records; the tool does not enable network interfaces.
-HTTPS upstreams verify certificates using `/etc/ssl/cert.pem`, the Arch CA trust store;
-private CAs need separate trust-store setup. The tool never disables TLS verification.
+HTTPS upstreams verify certificates using a discovered system/OpenSSL CA bundle, covering
+Debian/Ubuntu, Arch and Fedora/RHEL trust-store layouts. `SSL_CERT_FILE` is honored when it
+references a usable bundle. Use `--ca-bundle /absolute/bundle.pem` for an explicit/private CA
+bundle; it is validated before use and also applies to local certificate trust checks.
+The tool never disables TLS verification. Keep a private bundle at the same path for future
+Nginx reloads; pass the override again when updating a site.
 
 State defaults to `/var/lib/nginx-manager` (700); profiles and manifests are private.
 Use the menu's edit operation to reload a saved profile. A successfully applied profile is
@@ -133,8 +165,11 @@ Files are replaced atomically, with private snapshots recorded before each chang
 `nginx -t` must succeed before `systemctl reload nginx`. On a reload failure the previous
 files are restored and a reload of the prior valid configuration is attempted. No stop
 or restart commands run. Content hashes prevent automatic rollback from overwriting a
-concurrent manual edit. Symlink configuration targets and symlinked parent directories
-are rejected; Certbot's normal live certificate symlinks are supported for reading.
+concurrent manual edit. Configuration writes through symlinks and symlinked parent directories are rejected;
+Certbot's normal live certificate symlinks are supported for reading. Backups resolve loaded
+symlink includes (such as Debian sites-enabled entries) and snapshot their regular targets
+inside the allowed config tree, preserving the existing links. Targets outside the allowed
+config tree are refused for separate operator handling.
 Modified manager-owned configs are refused until the operator investigates them. Disabled
 sites must be explicitly enabled before updating, so updates cannot silently reactivate them.
 A lock serializes manager mutations; coordinate manual changes with the operator too.
@@ -164,15 +199,22 @@ artifacts and confirmed DNS changes are retained; repeated retries can hit CA ra
 If a later HTTPS activation fails, a working HTTP bootstrap may remain; inspect its profile,
 fix the cause, then run `ssl DOMAIN`. Never delete certificate stores to retry.
 
-The manager checks `certbot-renew.timer`, asks before enabling it, offers a guarded Nginx
-reload deploy hook, and offers `certbot renew --dry-run`. Existing differing hooks are
-not overwritten. Alternate timers/cron can be used; verify their reload behavior yourself.
-Timer/hook/renewal checks that are declined are reported and require operator follow-up.
+The manager discovers installed Certbot timer units (including `certbot.timer`,
+`certbot-renew.timer` and snap timer units), and prefers an already enabled or active scheduler.
+If only a disabled installed timer exists, it asks before enabling that timer. It never enables
+a nonexistent/guessed unit or adds a second timer alongside a discovered enabled one. Use
+`--renewal-timer NAME.timer` to select a specific installed timer. If no timer is available,
+the tool reports that cron/snap/custom scheduling needs manual verification.
+
+It offers a guarded Nginx reload deploy hook using the detected Nginx and systemctl executables,
+and offers `certbot renew --dry-run`. Existing differing hooks are not overwritten. Alternate
+cron/schedulers can be used; verify their reload behavior yourself. Timer/hook/renewal checks
+that are declined are reported and require operator follow-up.
 
 ```bash
 sudo ./nginx-manager.sh ssl app.example.com
 sudo ./nginx-manager.sh renew
-systemctl list-timers certbot-renew.timer
+systemctl list-timers 'certbot*' 'snap.certbot*'
 ```
 
 ## Cloudflare credentials and DNS
@@ -233,6 +275,13 @@ investigate an incomplete rollback before making another configuration change.
 
 ## Troubleshooting
 
+On SELinux systems (common on Fedora/RHEL), a successful Unix permission check does not
+establish that the Nginx service domain can access the files or connect to upstreams. Check
+web-root file contexts and the relevant HTTPD network policy with the server administrator.
+AppArmor profiles can also restrict custom roots/upstreams on other distributions. The tool
+reports enforcing SELinux during health checks and never disables MAC enforcement or changes
+host-wide policy automatically.
+
 `health DOMAIN` checks public DNS/origin mismatch, Nginx status/syntax, upstream connectivity,
 HTTP/HTTPS, Cloudflare response indicators, local certificate expiry and a redacted journal
 summary. It diagnoses 502 and Cloudflare 521/522/523/524/525/526 by network/application/TLS
@@ -260,9 +309,15 @@ unlimited buffer profile is provided. The health workflow prints names/counts/by
 
 Tests use temporary files and mocked nginx/systemctl/curl/Certbot boundaries; real OpenSSL
 creates disposable test certificates. They never change real Nginx, systemd or DNS. ShellCheck
-runs when installed. See [the walkthrough](docs/walkthrough.md) for Pomoda and a new-domain
+runs when installed. The repository includes a GitHub Actions container matrix for Arch,
+Debian, Ubuntu, Fedora and Rocky Linux; these checks validate parsing/rendering and mocked
+orchestration rather than booted-systemd/live ACME deployments. See [the walkthrough](docs/walkthrough.md) for Pomoda and a new-domain
 example; Pomoda is a reference demonstration and is never blindly redeployed.
 
 Implementation references: [Nginx proxy directives](https://nginx.org/en/docs/http/ngx_http_proxy_module.html),
 [Certbot webroot and renewal](https://eff-certbot.readthedocs.io/en/stable/using.html),
 [Cloudflare DNS API](https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/list/).
+
+OS identification follows the [os-release specification](https://www.freedesktop.org/software/systemd/man/latest/os-release.html).
+Package names are based on the distribution repositories, including [Debian Certbot](https://packages.debian.org/stable/certbot)
+and [Fedora Certbot](https://packages.fedoraproject.org/pkgs/certbot/certbot/).

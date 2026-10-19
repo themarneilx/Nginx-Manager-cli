@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
+declare -gA SITE
 certificate_valid() {
     local cert=$1 key=$2
+    local -a trust=()
+    [[ -z ${CA_BUNDLE:-} ]] || trust=(-CAfile "$CA_BUNDLE")
     [[ -f $cert && -f $key ]] &&
         openssl x509 -in "$cert" -noout -checkend 0 >/dev/null 2>&1 &&
         openssl x509 -in "$cert" -noout -checkhost "${SITE[domain]}" >/dev/null 2>&1 &&
-        openssl verify -untrusted "$cert" "$cert" >/dev/null 2>&1
+        openssl verify "${trust[@]}" -untrusted "$cert" "$cert" >/dev/null 2>&1
 }
 find_certificate() {
     if [[ -n $CERT && -n $KEY ]] && certificate_valid "$CERT" "$KEY"; then return 0; fi
@@ -45,7 +48,7 @@ configure_ssl() {
         [[ -n ${SITE[origin_ip]} && -n ${SITE[email]} ]] || { fail 'HTTPS issuance requires a public DNS origin IP and contact email.'; return 1; }
         check_dns || { fail 'Public A/AAAA resolution must match the configured origin. Remove stale records; use explicitly confirmed DNS-only bootstrap for Cloudflare.'; return 1; }
         warn 'HTTP-01 needs public inbound TCP 80. No firewall or application ports will be opened automatically.'
-        confirm 'Start HTTP-01 bootstrap and request a certificate from Let’s Encrypt (rate limits apply)?' || return 1
+        confirm "Start HTTP-01 bootstrap and request a certificate from Let's Encrypt (rate limits apply)?" || return 1
         SITE[https]=false
         http_json=$(site_json) || return
         rendered=$(render_site "$http_json") || return
@@ -58,7 +61,9 @@ configure_ssl() {
             --email "${SITE[email]}" --agree-tos --non-interactive --keep-until-expiring; then
             warn 'Certificate setup failed. Restoring the pre-bootstrap files. Certbot artifacts and confirmed DNS changes are retained.'
             fs rollback "$bootstrap_manifest" || return 1
-            nginx_run -t && systemctl reload "$NGINX_SERVICE" || warn 'Prior configuration needs a manual service check.'
+            if ! nginx_run -t || ! systemctl reload "$NGINX_SERVICE"; then
+                warn 'Prior configuration needs a manual service check.'
+            fi
             return 1
         fi
         find_certificate || { fail 'Issuer returned without a valid matching certificate; HTTP bootstrap remains active for recovery.'; return 1; }
@@ -68,10 +73,7 @@ configure_ssl() {
     fi
     certname=$(basename "$(dirname "$CERT")")
     info "Certificate lineage: $certname"
-    if ! systemctl is-enabled certbot-renew.timer >/dev/null 2>&1; then
-        warn 'certbot-renew.timer is not enabled. An existing cron/alternate renewal service may be in use.'
-        if confirm 'Enable and start the Arch certbot-renew.timer?'; then systemctl enable --now certbot-renew.timer || return; fi
-    fi
+    configure_renewal_timer || return
     info 'Webroot certificates also need an Nginx reload after renewal.'
     install_renewal_hook || return
     if confirm 'Run a renewal dry-run now (contacts the staging CA)?'; then
@@ -86,9 +88,11 @@ configure_ssl() {
 }
 install_renewal_hook() {
     local path="$CERTBOT_DIR/renewal-hooks/deploy/nginx-manager-reload" content
+    local systemctl_binary
+    systemctl_binary=$(command -v systemctl) || { fail 'systemctl is unavailable.'; return 1; }
     local -a options=(-t -c "$NGINX_CONF")
     [[ -z ${NGINX_PREFIX:-} ]] || options+=(-p "$NGINX_PREFIX")
-    content=$(printf '#!/bin/bash\n# nginx-manager renewal hook\n'; printf '%q ' "$(command -v "$NGINX_BIN")" "${options[@]}"; printf '&& /usr/bin/systemctl reload %q\n' "$NGINX_SERVICE")
+    content=$(printf '#!/bin/bash\n# nginx-manager renewal hook\n'; printf '%q ' "$(command -v "$NGINX_BIN")" "${options[@]}"; printf '&& %q reload %q\n' "$systemctl_binary" "$NGINX_SERVICE")
     if [[ -f $path ]]; then
         [[ $(cat "$path") == "$content" ]] && return 0
         warn 'A renewal hook already exists at the manager path. It will not be overwritten; review renewal reload handling manually.'
@@ -115,7 +119,7 @@ ssl_site() {
     [[ $(json_field enabled <<< "$META") == true ]] || { fail 'Enable the site before configuring HTTPS.'; return 1; }
     load_profile "$STATE_DIR/profiles/$domain.conf" || return
     SITE[https]=true
-    if [[ -z ${SITE[email]} ]]; then prompt SITE_EMAIL 'Let’s Encrypt contact email' ''; SITE[email]=$SITE_EMAIL; fi
+    if [[ -z ${SITE[email]} ]]; then prompt SITE_EMAIL "Let's Encrypt contact email" ''; SITE[email]=$SITE_EMAIL; fi
     if [[ -z ${SITE[origin_ip]} ]]; then prompt SITE_ORIGIN 'Public DNS origin IP' ''; SITE[origin_ip]=$SITE_ORIGIN; fi
     json=$(site_json) || return
     info "Enable/recheck HTTPS for $domain, preserving certificates for every other hostname."

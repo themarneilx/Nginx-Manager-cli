@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Globals assigned here are consumed by the other sourced modules.
+# shellcheck disable=SC2034
 # shellcheck shell=bash
 explain_status() {
     case "$1" in
@@ -40,6 +42,9 @@ health_site() {
         SITE=([domain]=$domain [origin_ip]='' [app]=static [api]=false)
     fi
     info "Health for $domain"
+    if command -v getenforce >/dev/null 2>&1 && [[ $(getenforce 2>/dev/null) == Enforcing ]]; then
+        info 'SELinux is enforcing: check web-root labels and httpd network permissions if Nginx requests fail; host policy is unchanged.'
+    fi
     info 'Public resolver results:'
     { dig +time=3 +tries=1 +short A "$domain"; dig +time=3 +tries=1 +short AAAA "$domain"; } | \
         python3 -c 'import ipaddress,sys

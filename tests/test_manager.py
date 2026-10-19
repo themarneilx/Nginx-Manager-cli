@@ -27,6 +27,7 @@ if '-V' in sys.argv:
 if '-T' in sys.argv:
     if os.environ.get('FAIL_DUMP') == '1': sys.exit(1)
     files = [os.environ['TEST_CONF']] + glob.glob(str(Path(os.environ['TEST_CONF']).parent / 'nginx-manager.d/*.conf'))
+    if os.environ.get('EXTRA_CONF_PATH'): files.append(os.environ['EXTRA_CONF_PATH'])
     for path in files:
         print('# configuration file ' + path + ':')
         print(Path(path).read_text())
@@ -37,6 +38,11 @@ sys.exit(9)
 '''); fake.chmod(0o755)
         systemctl = self.bin / 'systemctl'
         systemctl.write_text('''#!/bin/bash
+if [[ $1 == list-unit-files ]]; then printf 'certbot-renew.timer enabled enabled\\n'; exit 0; fi
+if [[ $1 == show && $2 == --property=LoadState ]]; then
+    if [[ ${!#} == certbot-renew.timer ]]; then printf loaded; else printf not-found; fi
+    exit 0
+fi
 if [[ $1 == show ]]; then printf '%s' "${SERVICE_EXECSTART:-{ path=$(command -v nginx) ; argv[]=$(command -v nginx) -c $TEST_CONF ; }}"; exit 0; fi
 printf '%s\\n' "$*" >> "$TEST_CALLS"
 if [[ $1 == reload && ${FAIL_RELOAD:-0} == 1 ]]; then exit 1; fi
@@ -55,7 +61,7 @@ MANAGER_DIR=$1
 NGINX_CONF=$2
 STATE_DIR=$3
 NGINX_BIN=nginx
-for module in common validation backups nginx certbot cloudflare diagnostics prompts; do source "$MANAGER_DIR/lib/$module.sh"; done
+for module in common os validation backups nginx certbot cloudflare diagnostics prompts; do source "$MANAGER_DIR/lib/$module.sh"; done
 init_defaults
 '''
         return subprocess.run(['bash', '-c', prelude + script, 'test', str(ROOT), str(self.conf), str(self.d / 'state')],

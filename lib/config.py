@@ -10,6 +10,8 @@ import re
 import shlex
 import sys
 from pathlib import Path
+sys.dont_write_bytecode = True
+from host import ca_bundle as select_ca_bundle
 
 TEMPLATES = Path(__file__).resolve().parents[1] / 'templates'
 APPS = {'nextjs', 'node', 'react', 'angular', 'static', 'api', 'proxy', 'custom'}
@@ -229,14 +231,14 @@ def conflicts(dump, name, exclude=''):
 
 def fill(name, **values):
     text = (TEMPLATES / name).read_text()
-    return re.sub(r'@@([A-Z_]+)@@', lambda m: str(values[m[1]]), text)
+    return re.sub(r'@@([A-Z0-9_]+)@@', lambda m: str(values[m[1]]), text)
 
 
 def address(hostname, port):
     return f'[{hostname}]:{port}' if ':' in hostname else f'{hostname}:{port}'
 
 
-def proxy(p, hostname, port, protocol, variable):
+def proxy(p, hostname, port, protocol, variable, ca_bundle=''):
     size = {'standard': 8, 'auth': 32, 'large': 64}[p['buffer']]
     lines = [f'proxy_pass {protocol}://{address(hostname, port)};', 'proxy_http_version 1.1;',
              'proxy_set_header Host $host;', 'proxy_set_header X-Real-IP $remote_addr;',
@@ -254,11 +256,11 @@ def proxy(p, hostname, port, protocol, variable):
         lines += ['proxy_set_header Connection "";']
     if protocol == 'https':
         lines += ['proxy_ssl_server_name on;', f'proxy_ssl_name {hostname};',
-                  'proxy_ssl_verify on;', 'proxy_ssl_trusted_certificate /etc/ssl/cert.pem;']
+                  'proxy_ssl_verify on;', f'proxy_ssl_trusted_certificate {select_ca_bundle(ca_bundle)};']
     return '\n'.join('        ' + line for line in lines)
 
 
-def render(p, challenge, cert='', key='', cidrs=()):
+def render(p, challenge, cert='', key='', cidrs=(), ca_bundle=''):
     p = validate(p)
     if not safe_path(challenge):
         raise ValueError('Unsafe challenge path')
@@ -276,8 +278,8 @@ def render(p, challenge, cert='', key='', cidrs=()):
             ipaddress.ip_network(cidr, strict=True)
         real = '\n'.join('    set_real_ip_from ' + c + ';' for c in cidrs)
         real += '\n    real_ip_header CF-Connecting-IP;\n    real_ip_recursive on;'
-    upstream = proxy(p, p['host'], p['port'], p['protocol'], variable)
-    api = proxy(p, p['api_host'], p['api_port'], p['api_protocol'], variable)
+    upstream = proxy(p, p['host'], p['port'], p['protocol'], variable, ca_bundle)
+    api = proxy(p, p['api_host'], p['api_port'], p['api_protocol'], variable, ca_bundle)
     if p['app'] in {'react', 'angular', 'static'}:
         locations = fill('static-site.conf', ROOT=p['root'], FALLBACK='/index.html' if p['spa'] or p['app'] in {'react', 'angular'} else '=404')
     elif p['app'] == 'custom':
@@ -360,7 +362,7 @@ def main():
         print(json.dumps(validate(raw), indent=2))
     elif ns.operation == 'render':
         print(render(load(a[0]), a[1], a[2] if len(a) > 2 else '', a[3] if len(a) > 3 else '',
-                     a[4].split(',') if len(a) > 4 and a[4] else ()), end='')
+                     a[4].split(',') if len(a) > 4 and a[4] else (), a[5] if len(a) > 5 else ''), end='')
     elif ns.operation == 'layout':
         print(json.dumps(layout(sys.stdin.read(), a[0], a[1])))
     elif ns.operation == 'conflicts':

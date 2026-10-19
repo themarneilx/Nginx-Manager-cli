@@ -26,7 +26,7 @@ class ServiceResolutionTests(unittest.TestCase):
 
     def test_discovery_helper_does_not_create_bytecode_files(self):
         with tempfile.TemporaryDirectory() as tmp:
-            for name in ['service.py','config.py']:
+            for name in ['service.py','config.py','host.py']:
                 shutil.copyfile(ROOT/'lib'/name,Path(tmp)/name)
             proc=self.resolve('',tmp)
             self.assertEqual(proc.returncode,0,proc.stderr)

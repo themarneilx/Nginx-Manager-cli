@@ -2,7 +2,8 @@
 
 ## Reference configuration analysis
 
-The supplied `../../nginx.conf` has a single `http` block containing:
+The production `nginx.conf` supplied with the original brief is kept outside this repository.
+It has a single `http` block containing:
 
 | Pattern | Reference |
 | --- | --- |

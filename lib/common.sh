@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Globals assigned here are consumed by the other sourced modules.
+# shellcheck disable=SC2034
 # shellcheck shell=bash
 init_defaults() {
     export PYTHONDONTWRITEBYTECODE=1
@@ -14,6 +16,8 @@ init_defaults() {
     : "${CF_CIDRS:=}"
     : "${CERT:=}"
     : "${KEY:=}"
+    : "${CA_BUNDLE:=}"
+    : "${RENEWAL_TIMER:=}"
     declare -gA SITE=()
     COLOR='' RESET=''
     if [[ -t 1 && ${TERM:-dumb} != dumb && -z ${NO_COLOR:-} ]]; then
@@ -74,7 +78,7 @@ site_json() {
 }
 render_site() {
     local json=$1
-    helper render /dev/stdin "$ACME_ROOT" "$CERT" "$KEY" "$CF_CIDRS" <<< "$json"
+    helper render /dev/stdin "$ACME_ROOT" "$CERT" "$KEY" "$CF_CIDRS" "$CA_BUNDLE" <<< "$json"
 }
 validate_domain() {
     python3 - "$MANAGER_DIR/lib" "$1" <<'PY'
@@ -89,14 +93,5 @@ require_commands() {
     for cmd in python3 curl openssl dig flock systemctl "$NGINX_BIN"; do
         command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
     done
-    ((${#missing[@]} == 0)) || fail "Missing commands: ${missing[*]}. Use the dependencies command to install Arch packages."
-}
-install_dependencies() {
-    local packages=(nginx certbot certbot-nginx curl openssl bind python util-linux)
-    info "Arch packages: ${packages[*]}. Installs use pacman -S --needed (no partial database refresh)."
-    if [[ $DRY_RUN == true ]]; then return; fi
-    require_root || return
-    command -v pacman >/dev/null || { fail 'pacman is unavailable; install dependencies for your OS manually.'; return 1; }
-    confirm 'Install these packages?' || return 1
-    pacman -S --needed "${packages[@]}"
+    ((${#missing[@]} == 0)) || fail "Missing commands: ${missing[*]}. Use the dependencies command to install packages for the detected OS."
 }

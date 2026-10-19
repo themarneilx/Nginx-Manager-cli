@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
+# STATE_DIR is initialized by init_defaults in common.sh.
+# shellcheck disable=SC2153
 # Resolve the same binary, configuration and prefix as the selected systemd service.
 resolve_nginx_conf() {
     local version service target
     command -v "$NGINX_BIN" >/dev/null || { fail 'Nginx binary not found.'; return 1; }
     version=$("$NGINX_BIN" -V 2>&1) || return
+    command -v systemctl >/dev/null || { fail 'Service management requires systemd; this init system is unsupported.'; return 1; }
     service=$(systemctl show --property=ExecStart --value "$NGINX_SERVICE" 2>/dev/null) || {
-        fail 'Cannot inspect systemd ExecStart. Select the actual Nginx service with --service.'; return 1;
+        fail 'Cannot inspect systemd ExecStart. A running systemd instance and matching --service are required (OpenRC/runit are unsupported).'; return 1;
     }
     target=$(python3 "$MANAGER_DIR/lib/service.py" "$NGINX_CONF" "$(command -v "$NGINX_BIN")" "$version" <<< "$service") || return
     NGINX_CONF=$(json_field config <<< "$target")

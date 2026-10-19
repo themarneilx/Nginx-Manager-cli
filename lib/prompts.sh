@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
+# Globals assigned here are consumed by the other sourced modules.
+# shellcheck disable=SC2034
 # shellcheck shell=bash
+declare -gA SITE
 prompt() {
     local variable=$1 label=$2 default=${3:-} answer
     if [[ -n $default ]]; then printf '%s [%s]: ' "$label" "$default" >&2
@@ -98,9 +101,9 @@ site_wizard() {
         if confirm 'Restore visitor IPs only from verified Cloudflare proxy networks?'; then SITE[real_ip]=true; fi
     fi
     SITE[https]=false
-    if yes_default 'Enable HTTPS with Let’s Encrypt?'; then
+    if yes_default "Enable HTTPS with Let's Encrypt?"; then
         SITE[https]=true
-        prompt email 'Let’s Encrypt contact email' "${SITE[email]}" || return
+        prompt email "Let's Encrypt contact email" "${SITE[email]}" || return
         SITE[email]=$email
     fi
     json=$(site_json) || return
@@ -158,8 +161,10 @@ menu_operation() {
 }
 interactive_menu() {
     local choice status
+    detect_os || return
     while true; do
-        printf '\n==========================================\n       NGINX DEPLOYMENT MANAGER\n              Arch Linux\n==========================================\n[1] Add new domain / subdomain\n[2] Manage existing website\n[3] Check website health\n[4] Configure / renew SSL\n[5] View hosted websites\n[6] Remove a managed website\n[7] Cloudflare DNS management\n[8] Backup Nginx configuration\n[9] Restore a configuration backup\n[0] Exit\n'
+        printf '\n==========================================\n       NGINX DEPLOYMENT MANAGER\n==========================================\n[1] Add new domain / subdomain\n[2] Manage existing website\n[3] Check website health\n[4] Configure / renew SSL\n[5] View hosted websites\n[6] Remove a managed website\n[7] Cloudflare DNS management\n[8] Backup Nginx configuration\n[9] Restore a configuration backup\n[0] Exit\n'
+        info "Detected OS: $OS_NAME ($OS_FAMILY)"
         prompt choice 'Select an option' '' || return 0
         [[ $choice != 0 ]] || return 0
         # Each operation gets an EXIT rollback trap and releases its flock before returning.

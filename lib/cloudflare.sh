@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Globals assigned here are consumed by the other sourced modules.
+# shellcheck disable=SC2034
 # shellcheck shell=bash
 cf_credentials() {
     set +x
@@ -133,7 +135,7 @@ cloudflare_menu() {
     prompt 'SITE[zone_id]' 'Cloudflare zone ID' ''
     prompt type 'Record type (A, AAAA, CNAME)' A
     prompt content 'Record content (origin IP or CNAME target)' ''
-    python3 - "$MANAGER_DIR/lib" "$type" "$content" <<'PY'
+    python3 - "$MANAGER_DIR/lib" "$type" "$content" <<'PY' || return 1
 import ipaddress,sys
 sys.path.insert(0,sys.argv[1]); from config import domain
 kind,value=sys.argv[2:]
@@ -142,7 +144,6 @@ else:
     assert kind in {'A','AAAA'}, 'Invalid type'
     ip=ipaddress.ip_address(value); assert ip.is_global and ip.version==(4 if kind=='A' else 6), 'Invalid IP'
 PY
-    [[ $? == 0 ]] || return 1
     proxied=false
     if confirm 'Proxy through Cloudflare?'; then proxied=true; fi
     if [[ $DRY_RUN != true ]]; then acquire_lock || return; fi

@@ -1,5 +1,6 @@
 """Optional real-Nginx parser coverage; all configuration and certificates stay in /tmp."""
 import shutil
+import socket
 import subprocess
 import tempfile
 from pathlib import Path
@@ -24,6 +25,13 @@ class NginxSyntaxTests(unittest.TestCase):
             for change in changes:
                 with self.subTest(change=change):
                     site=test_config.config.render(test_config.config.validate(test_config.profile(**change)),str(root/'acme'),str(cert),str(key))
+                    # nginx -t can bind listeners; keep the fixture on unprivileged loopback ports.
+                    with socket.socket() as listener:
+                        listener.bind(('127.0.0.1',0)); http_port=listener.getsockname()[1]
+                    with socket.socket() as listener:
+                        listener.bind(('127.0.0.1',0)); https_port=listener.getsockname()[1]
+                    site=site.replace('listen 80;',f'listen 127.0.0.1:{http_port};').replace('listen 443 ssl;',f'listen 127.0.0.1:{https_port} ssl;')
+                    site=site.replace('listen [::]:80;',f'listen [::1]:{http_port};').replace('listen [::]:443 ssl;',f'listen [::1]:{https_port} ssl;')
                     text=f'pid {root}/nginx.pid;\nerror_log stderr;\nevents {{}}\nhttp {{\naccess_log off;\nclient_body_temp_path {root}/body;\nproxy_temp_path {root}/proxy;\nfastcgi_temp_path {root}/fastcgi;\nuwsgi_temp_path {root}/uwsgi;\nscgi_temp_path {root}/scgi;\n'+site+'\n}\n'
                     conf=root/'nginx.conf'; conf.write_text(text)
                     proc=subprocess.run(['nginx','-t','-p',str(root)+'/', '-c',str(conf),'-e','stderr'],text=True,capture_output=True)
