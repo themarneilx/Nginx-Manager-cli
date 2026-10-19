@@ -2,6 +2,7 @@
 # Globals assigned here are consumed by the other sourced modules.
 # shellcheck disable=SC2034
 # shellcheck shell=bash
+declare -gA SITE
 explain_status() {
     case "$1" in
         000) info 'No HTTP response: investigate DNS, network, listener and TLS connectivity.' ;;

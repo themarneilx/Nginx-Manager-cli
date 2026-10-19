@@ -6,11 +6,11 @@ passing and one real-Nginx test skipped because that binary was initially unavai
 The portability update was verified locally with:
 
 ```bash
-PATH=/tmp/nginx-manager-test-tools/shellcheck-v0.10.0:/tmp/nginx-manager-test-tools/nginx-1.28.0/objs:$PATH ./tests/run.sh
+PATH=/tmp/nginx-manager-test-tools/shellcheck-v0.11.0:/tmp/nginx-manager-test-tools/nginx-1.28.0/objs:$PATH ./tests/run.sh
 ```
 
 - Bash syntax: passed for every .sh file.
-- ShellCheck 0.10.0: passed. Narrow annotations identify globals shared by sourced modules.
+- ShellCheck 0.10.0 and 0.11.0: passed. Narrow annotations identify globals shared by sourced modules.
 - Automated suite: **58 tests passed, no skipped tests**.
 - Actual Nginx 1.28.0: generated reverse proxy, static/API, streaming/WebSocket, verified
   HTTPS upstream and IPv6/TLS redirect variants passed `nginx -t` in temporary fixtures.
@@ -30,6 +30,9 @@ idempotency, transaction/rollback/recovery, manual edits, HTTPS bootstrap, issue
 Cloudflare record conflicts/proxy restoration/range refresh and secret-redacted diagnostics.
 
 GitHub Actions includes Arch, Debian, Ubuntu, Fedora and Rocky Linux container jobs.
+The initial matrix passed Debian/Ubuntu/Rocky and exposed a stricter ShellCheck 0.11
+associative-array inference warning on Arch/Fedora; an explicit declaration fixes it,
+and the full local suite also passes with ShellCheck 0.11.
 See the repository's Actions page for the result of each published commit. These jobs
 check real Nginx syntax plus mocked package/service/ACME/API orchestration; they do not
 represent booted-systemd production deployments on every distribution.
