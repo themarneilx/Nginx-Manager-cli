@@ -311,8 +311,8 @@ Tests use temporary files and mocked nginx/systemctl/curl/Certbot boundaries; re
 creates disposable test certificates. They never change real Nginx, systemd or DNS. ShellCheck
 runs when installed. The repository includes a GitHub Actions container matrix for Arch,
 Debian, Ubuntu, Fedora and Rocky Linux; these checks validate parsing/rendering and mocked
-orchestration rather than booted-systemd/live ACME deployments. See [the walkthrough](docs/walkthrough.md) for Pomoda and a new-domain
-example; Pomoda is a reference demonstration and is never blindly redeployed.
+orchestration rather than booted-systemd/live ACME deployments. See [the walkthrough](docs/walkthrough.md)
+for an `app.example.com` deployment and examples of handling an existing website.
 
 Implementation references: [Nginx proxy directives](https://nginx.org/en/docs/http/ngx_http_proxy_module.html),
 [Certbot webroot and renewal](https://eff-certbot.readthedocs.io/en/stable/using.html),

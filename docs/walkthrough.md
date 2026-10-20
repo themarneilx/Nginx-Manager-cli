@@ -1,24 +1,22 @@
 # Example walkthroughs (no production changes)
 
-## Reference configuration analysis
+## Common hosting patterns
 
-The production `nginx.conf` supplied with the original brief is kept outside this repository.
-It has a single `http` block containing:
+A typical Nginx configuration can contain several hosting patterns inside one `http` block:
 
 | Pattern | Reference |
 | --- | --- |
-| Static SPA plus preserved API prefix | Library frontend → local API port 3000 |
-| Angular plus API | Hotel frontend → local API port 3001 |
-| Generic/Next.js proxy | mc host → local port 3003 |
-| Auth-oriented response buffering | Pomoda → local port 3107, 32k / eight buffers / 64k busy |
-| Certbot TLS and separate HTTP redirects | Four HTTPS deployments, plus hotel www alias |
-| Private Tor proxy | 127.0.0.1:8080 → 127.0.0.1:6900 with IP scrubbing |
+| Static SPA plus preserved API prefix | Static frontend → local API port 3000 |
+| Angular plus API | Angular frontend → local API port 3001 |
+| Generic/Next.js proxy | Application → local port 8080 |
+| Auth-oriented response buffering | Application with authentication, 32k / eight buffers / 64k busy |
+| Certbot TLS and separate HTTP redirects | HTTPS websites with optional www aliases |
+| Private loopback proxy | Loopback-only listener → local backend with IP scrubbing |
 
-There is a module include at main scope and MIME include inside http, but no per-site include.
-The manager introduces its own http-context include when needed. It never copies the reference
-to the live server. A live `nginx -T` is authoritative. The Tor listener and its header scrubbing
-remain untouched. Its unconditional Connection upgrade could be reviewed separately by the
-operator; it is deliberately excluded from this tool's changes.
+Module includes belong at main scope and MIME settings inside `http`. The manager discovers
+the live layout with `nginx -T` and introduces an http-context per-site include when needed.
+It generates configuration from your answers rather than copying a sample configuration.
+Existing loopback-only services and their header settings remain untouched.
 
 New proxy hosts use conditional WebSocket headers, bounded response-header buffers even for
 streaming, rebuilt forwarding headers and verified HTTPS upstreams. Existing Certbot options
@@ -26,23 +24,21 @@ and DH parameters are left intact; new hosts do not duplicate global Certbot dec
 `worker_processes auto`, home-directory root permissions and trusted real-IP settings are
 potential separate improvements to assess against the actual server.
 
-## Pomoda: reference only
+## Deploy app.example.com with Cloudflare and HTTPS
 
-If the live server matches the reference, entering `pomoda.marneilx.org` in Add finds the
-existing `server_name` and offers to list sources. It does not create another server block,
-request a certificate, alter Cloudflare, or claim ownership. Use `list` or
-`health pomoda.marneilx.org` to inspect the live deployment.
+`app.example.com` is a documentation placeholder. Replace it with a hostname you control
+before configuring real DNS or requesting a certificate.
 
-For a **disposable staging host without that manual vhost**, the equivalent wizard answers are:
+For a new application, the wizard answers would look like this:
 
 ```text
-Domain: pomoda.marneilx.org
+Domain: app.example.com
 Hosting: This server
 Public DNS origin IP: enter the actual public address of this staging Nginx host
 Confirm that IP is the DNS destination: yes
 Application: Next.js
 Upstream: 127.0.0.1
-Port: 3107
+Port: 8080 (replace with your application's actual port)
 Protocol: HTTP (loopback)
 Separate API: no (unless your app has one)
 WebSocket: yes if required
@@ -67,8 +63,13 @@ origin challenge is probed; the operator verifies external TCP 80. Certbot obtai
 a certificate, then Nginx gets TLS and an ACME-capable HTTP redirect. Proxy activation is
 separately confirmed after TLS succeeds. Select Cloudflare Full (strict) in the dashboard.
 
-This sequence is a demonstration, not authorization to redeploy the existing Pomoda site.
-No production DNS or certificate requests were made during development.
+### If the domain already exists
+
+If your real hostname already has a `server_name` in the loaded configuration, Add detects
+it and offers to list its configuration sources. It does not create a duplicate server
+block, request a certificate, alter Cloudflare, or claim ownership. Use `list` or
+`health YOUR_DOMAIN` to inspect that deployment. Manually configured websites require a
+separately reviewed migration before the manager can own them.
 
 ## A completely new domain
 
